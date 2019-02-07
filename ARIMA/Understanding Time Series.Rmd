@@ -1,4 +1,4 @@
-Homework 1 Timeseries Notes
+Timeseries...
 
 #Notes on analysis.
 #Instead of having (x,y) pairs, we have an ordered set. 
@@ -153,9 +153,4 @@ pseudo code:
   -27 months
 5. prediction + 95% prediction intervals
 6. Pretty graph
-
-
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
-
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
 
