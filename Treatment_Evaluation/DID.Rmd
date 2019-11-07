@@ -1,5 +1,5 @@
 ---
-title: "Did it Work? DiDs"
+title: "DiD it Work?"
 output: html_notebook
 ---
 
