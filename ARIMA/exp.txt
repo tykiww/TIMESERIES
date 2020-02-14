@@ -1,1 +1,0 @@
-ARIMA timeseries models for both seasonal and annual change.
