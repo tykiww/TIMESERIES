@@ -1,1 +1,1 @@
-# Seasonally Adjustment Analysis
+# Seasonal Adjustment Analysis
