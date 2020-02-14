@@ -1,0 +1,372 @@
+---
+title: "Strength of Seasonal Adjustments (ARIMAX at the end)"
+output: html_notebook
+---
+
+Do you eat more ice cream in the summer or winter? People are habitual, it is just in our nature. And accordingly, this allows us to extract meaningful patterns.
+
+![](https://pics.me.me/breakvourownnews-com-live-breaking-news-chocolate-ice-cream-sales-rise-markets-55052748.png) 
+
+The way we figure this out is by using seasonally adjusted strengths. It's a pretty simple concept! Seasonal adjusting is a statistical technique that allows you to understand the base trends in a given time-series. It does this by comparing percent differences from the average. Adjustment is a technique to remove the seasonal component of a time series if it displays a seasonal pattern. If a typical summer has higher ice-cream sales than winter, on average, What is typical?
+
+We compute this by simply dividing each value by a group average. This group average can be a year, a week, or any period that exhibits a seasonal pattern. The ratio between the actual value and the average determines the seasonal factor for that time period. If annual ice cream sales for July 2019 was 450 dollars and the average monthly revenue was 375, we can say that July was 1/5th higher than average
+
+$$
+450/375 = 1.2
+$$
+
+1.2 is the seasonal factor for July. This means, assuming that all Julys are the same, that the 7th month of the year is 20% higher than the typical month. Well, duh. We're just dividing numbers here. Isn't that obvious? Well, true. However, this seasonal factor can be of importance to us if we decide to inference with it. 
+
+Now let's say that the business made 400 dollars this next year. We can now use that seasonal factor we produced for July and work some magic.
+
+$$
+400/1.2=333.333
+$$
+
+This is some powerful stuff. The simple calculation we made up above is telling us that the 400 dollars we made this month is really only worth 333 dollars if we take into account seasonality. In other words, we expect July to perform 20% better so whatever revenue we produce this should be marked down 20% from what it really is to show its true de-seasoned result. If the quotient of this operation is higher than last Julys revenue, then we can actually infer pure growth without seasonality blocking us. 
+
+Now, if we had a unique seasonal factor for each month we can see with more clarity: which month actually performed better? Suddenly it moves from a game of raw increase to an informed seasonal analysis.
+
+<hr>
+
+Let's try this with rental prices.
+
+<hr>
+
+
+This statistical analysis is an attempt to present a model that accounts for monthly seasonal adjustments in housing rent. The output of this model will be a seasonally adjusted value that takes into account relevant factors of the area.
+
+Here we go.
+
+```r
+library(tidyverse)
+library(ggplot2)
+path = "https://raw.githubusercontent.com/tykiww/projectpage/master/datasets/houseprice/"
+rent = "housing_rent.csv"; rent = read_csv(paste(path,rent,sep = ""))
+mark = "market_growth.csv"; mark = read_csv(paste(path,mark,sep = ""))
+head(rent);head(mark)
+```
+
+    ## RENT
+    ##   HomeID Submarket  City YearBuilt Rehab1 Rehab2 Rehab3 Quantity AreaPerUnit Level Neighborhood Status
+    ##    <dbl>     <dbl> <dbl>     <dbl>  <dbl> <lgl>  <lgl>     <dbl>       <dbl> <dbl> <lgl>        <chr> 
+    ## 1      1        15     2      2016     NA NA     NA          184         785     5 NA           S     
+    ## 2      2        15     2      2015     NA NA     NA          331         805     5 NA           S     
+    ## 3      3        15     2      2010     NA NA     NA          196         873     4 NA           S     
+    ## 4      4        15     2      2013     NA NA     NA          206         909     4 NA           S     
+    ## 5      5         8    21      2000     NA NA     NA          201         813     3 NA           S     
+    ## 6      6         3     2      1986   2016 NA     NA          214         806     3 NA           S  
+    ## 
+    ## MARK
+    ##   QuarterYear Quarter  Year RntGrw
+    ##   <chr>         <dbl> <dbl>  <dbl>
+    ## 1 1Q95              1  1995 0.0119
+    ## 2 2Q95              2  1995 0.0185
+    ## 3 3Q95              3  1995 0.0197
+    ## 4 4Q95              4  1995 0.0097
+    ## 5 1Q96              1  1996 0.0104
+    ## 6 2Q96              2  1996 0.0091
+
+
+Data consists of housing information and rent market percentage (two tables) from an anonymous state. Specific addresses are omitted for confidentiality. It looks like each record is unique, so we will first begin by melting each row by each distinct date (omitting empty cells). This will allow us to placate our table into a time-series friendly form.
+
+Along the way, we can efficiently take an average by rental property and create our seasonal strength value (I'll call it ass for adjusted seasonal strength).
+
+```r
+# This might take a minute
+
+# Initialize with an empty list
+ob <- list()
+for (j in 1:nrow(rent)) {
+
+  # calculate rental values by year and extract the average by year
+  vl <- na.omit(t(rent[j,13:ncol(rent)]))
+  rwn <- rownames(vl)
+  a1 <- data.frame(do.call(rbind,strsplit(rwn,"-")),vl)
+  mean_by_year <- aggregate(a1$vl,by = list(a1$X2),mean)
+  
+  # Create new variable average and plug in average values per year
+  a1$av <- 0
+  for(k in 1:nrow(a1)) {
+    a1[k,4]<- mean_by_year[mean_by_year[,1] %in% a1$X2[k],2]
+  }
+  
+  # Divide each rent value by the average to obtain the seasonal strength.
+  a1$ass <- vl/a1$av
+  
+  # Create lists that have each rental property rent by month by year including its seasonal strength
+  newtab <- list()
+  for (i in 1:length(rwn)) {
+    newtab[[i]] <- cbind(rent[j,1:12],Month = a1$X1[i], Year = a1$X2[i], Rent = vl[i,], ASS = a1$ass[i])
+  }
+  ob[[j]] <- do.call(rbind,newtab)
+}
+```
+
+It might have just been easier to take averages as a group-by statement and allow for more vectorized computations. Oh well, I don't feel like going back and fixing it. It would've been so much easier in oracle for sure.
+
+
+Now we can include a cleanup of some date values
+
+```r
+# Simple Clean_up
+rent_table <- do.call(rbind,ob)
+rownames(rent_table) <- NULL
+
+# Change months numbers
+
+numMonth <- function(x) { # vectorized math is faster!
+  c(jan=1,feb=2,mar=3,apr=4,may=5,jun=6,
+    jul=7,aug=8,sep=9,oct=10,nov=11,dec=12)[tolower(x)]
+}
+
+# Change years to long format
+numYears <- function(x) {
+  
+  now <- as.numeric(substr(strsplit(as.character(Sys.time()),"-")[[1]][1],3,4))
+  # Assuming that we do NOT go into the 1800s and the minimum year is 2009
+  ifelse(as.numeric(x)<=now,paste(20,x, sep = ""),
+         paste(19,x, sep = "")) %>% as.numeric
+}
+
+# Use functions (run once, do NOT re-run)
+rent_table$Month <- numMonth(rent_table$Month) 
+rent_table$Year <- numYears(rent_table$Year)
+
+# The table looks as follows
+head(rent_table, 5)
+```
+
+    ##   HomeID Submarket City YearBuilt Rehab1 Rehab2 Rehab3 Quantity AreaPerUnit Level Neighborhood Status
+    ## 1      1        15    2      2016     NA     NA     NA      184         785     5           NA      S
+    ## 2      1        15    2      2016     NA     NA     NA      184         785     5           NA      S
+    ## 3      1        15    2      2016     NA     NA     NA      184         785     5           NA      S
+    ## 4      1        15    2      2016     NA     NA     NA      184         785     5           NA      S
+    ## 5      1        15    2      2016     NA     NA     NA      184         785     5           NA      S
+    ##   Jan-10 Feb-10 Mar-10 Apr-10 May-10 Month Year Rent       ASS
+    ## 1     NA     NA     NA     NA     NA     7 2016 1628 1.0082576
+    ## 2     NA     NA     NA     NA     NA     8 2016 1621 1.0039224
+    ## 3     NA     NA     NA     NA     NA     9 2016 1625 1.0063997
+    ## 4     NA     NA     NA     NA     NA    10 2016 1611 0.9977291
+    ## 5     NA     NA     NA     NA     NA    11 2016 1600 0.9909166
+
+And pivot the market rent growth percents.
+
+```r
+# Change out1 types to numeric
+mark[,-1] <- apply(mark[,-1],2,as.numeric)
+# Create exact columns
+short <- rent_table[,c("Month","Year")]
+short$Quarter <- 2
+short$Quarter[short[,1]<4] <- 1
+short$Quarter[short[,1]>9] <- 4
+short$Quarter[short[,1]<10&short[,1]>6] <- 3
+rent_table$MarketGrowth <- right_join(mark,short,by = c("Year","Quarter"))$RntGrw
+head(rent_table,10)
+```
+
+    ##   HomeID Submarket City YearBuilt Rehab1 Rehab2 Rehab3 Quantity AreaPerUnit Level Neighborhood Status Month
+    ## 1      1        15    2      2016     NA     NA     NA      184         785     5           NA      S     7
+    ## 2      1        15    2      2016     NA     NA     NA      184         785     5           NA      S     8
+    ## 3      1        15    2      2016     NA     NA     NA      184         785     5           NA      S     9
+    ## 4      1        15    2      2016     NA     NA     NA      184         785     5           NA      S    10
+    ## 5      1        15    2      2016     NA     NA     NA      184         785     5           NA      S    11
+    ##   Year Rent       ASS MarketGrowth
+    ## 1 2016 1628 1.0082576       0.0164
+    ## 2 2016 1621 1.0039224       0.0164
+    ## 3 2016 1625 1.0063997       0.0164
+    ## 4 2016 1611 0.9977291      -0.0081
+    ## 5 2016 1600 0.9909166      -0.0081
+
+Now we have a manageable dataset. If you are curious what the seasonal trends look like, take a look below.
+
+```r
+# Each month's Average SAS value.
+check <- aggregate(rent_table$ASS,by = list(rent_table$Month), median)
+plot(check$Group.1, check$x,ylab = "Average_SAS", xlab = "Months")
+abline(h = 1,col = "red")
+```
+
+![](https://raw.githubusercontent.com/tykiww/imgbucket/master/img/ASS/one.png)
+
+It looks like the seasonal effect is low at the start of the year and begins to rise. Once it hits summer, the rental rates reach higher than average and begin to plateau and die down once the summer is over. This is actually a very well known phenomenon that occurs all over the US. Most individuals tend to rent or move in more frequently during the summer, causing the demand to rise. As the demand increases, prices catch up with competition because the supply of available rental properties doesn't neccesarily react to an influx of customers. I mean, if you were leasing a property you won't really take it off during the summer right? Also, my guess is that this is a state that gets pretty cold in the late winter months but stays relatively warm until November. Tennessee maybe?
+
+Just for reference, on an annual basis, our SAS values look like this:
+
+```r
+# Adjust dataset
+time_series <- select(rent_table,MarketGrowth,Month,Year,ASS)
+
+sas_table <- aggregate(time_series$ASS,by = list(time_series$Month,time_series$Year), mean)
+mkt_table <- aggregate(time_series$MarketGrowth, by = list(time_series$Month,time_series$Year),mean)
+
+t_series <- cbind(sas_table,"Market_Growth" = mkt_table$x)
+colnames(t_series) <- c("Month","Year","ASS","Market_Growth")
+
+colores <-  c(rep("steel blue",3),rep("forest green",3), rep("red",3), rep("orange",3))
+plot(t_series$ASS, type = "b", col =colores)
+abline(h = "1", col = "black",lty = 2)
+legend(0,.9825,c("Q1","Q2","Q3","Q4"),c("steel blue","forest green","red","orange"))
+```
+![](https://raw.githubusercontent.com/tykiww/imgbucket/master/img/ASS/two.png)
+
+<hr>
+
+
+Just to make sure that we are seeing some real differences,let's answer the question: How much of an adjustment do we need to make in rental price expectations between summer and winter months? I'll classify summer to be from June-September and winter from December - March. 
+
+To figure this out, a bootstrapping test can be easily done. We can grab all the summer and winter ASS values and check to make sure how different they are from each other.
+
+```r
+# Grab all summer months, bootstrap them
+# Summer Months constitute.. June - Sep (inclusive)
+summer <- rent_table[rent_table$Month %in% c(6:9),]$ASS
+# Grab all winter months, bootstrap them
+# Winter Months constitute.. Dec - Mar
+winter <- rent_table[rent_table$Month %in% c(12,1:3),]$ASS
+# subtract the average difference. Check if the p-value is below .05
+
+sum <- data.frame(SAS = sample(summer,10000,replace = TRUE))
+win <- data.frame(SAS = sample(winter,10000,replace = TRUE))
+
+sum$type <- 'Summer'; win$type <- 'Winter'
+SAS_lengths <- rbind(sum, win)
+ggplot(SAS_lengths, aes(SAS, fill = type)) + 
+  geom_density(alpha = 0.2)
+
+# So, if we were to take all these homes only 70% of the time we would see an increase in home values.
+# In other words, the summer SAS and winter SAS are not statistically different from each other.
+mean(sum$SAS);mean(win$SAS)
+mean(sum$SAS-win$SAS)
+1-mean(sum$SAS>win$SAS) # So, there is a difference but maybe not a statistical difference.
+```
+
+    ## [1] 1.009771    # Summer
+    ## [1] 0.9881785   # Winter
+    ## [1] 0.02159296  # Summer - Winter
+    ## [1] 0.3117      # p-value
+
+![](https://raw.githubusercontent.com/tykiww/imgbucket/master/img/ASS/three.png)
+
+So outright we can tell that there may not be so much of a "statistical" difference between summer and winter months in terms of seasonal adjustment. p-value is .3 which means.. If we were to pick any summer day and compare it to a winter day,70% of the time our summer days will be larger in seasonal strengh than our winter days (If I were to pick a random one day in summer and random one day in winter, 70% of the time, summer will be higher than winter. If it was above 95% of the time, then we can say that statistically, we find a sure difference between the two). 
+
+If anyone argues with you that you can't use p-values as percents, tell them they are WRONG! You can use p-values as percents if you BOOTSTRAP the data. You are creating hypothetical simulations of what would actually happen in real-life.
+
+Furthermore, if I was to pick a random day of the summer and random day in the winter, the seasonal difference in strengh it 2.18%. This means that, on average, the summer months are 2.16% higher in seasonal RENTAL COSTS than the winter days not taking into account any other factors 70% of the time. That's pretty good if you were thinking of investing in real-estate properties for rent.
+
+<hr>
+
+We can even take it a step further from here. What if we wanted to forecast what ASS would be for the next year? It can be done! We can use our table values to figure out the strongest contributors to seasonal strength and use an ARIMAX to predict for the next year.
+
+To find likely contributors, we can just run a multiple regression to understand our data:
+
+```r
+# Removing values that have too many NAs or values that will not contribute to forward prediction.
+Xy_matrix <- select(rent_table,-HomeID,-Rehab1,-Rehab2,-Rehab3,-Neighborhood, -Year)
+ass_lm <- lm(ASS ~ .,data =  Xy_matrix)
+summary(ass_lm)
+```
+
+
+    ## Coefficients:
+    ##                Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept)   1.393e+00  2.274e-02  61.281  < 2e-16 ***
+    ## Submarket    -1.833e-04  3.230e-05  -5.676 1.38e-08 ***
+    ## City          2.030e-04  1.958e-05  10.369  < 2e-16 ***
+    ## YearBuilt    -2.204e-04  1.145e-05 -19.241  < 2e-16 ***
+    ## Quantity      2.539e-06  1.309e-06   1.939   0.0525 .  
+    ## AreaPerUnit  -1.814e-05  1.036e-06 -17.497  < 2e-16 ***
+    ## Level        -1.014e-03  5.690e-05 -17.820  < 2e-16 ***
+    ## StatusR       1.204e-02  2.441e-03   4.932 8.18e-07 ***
+    ## StatusS       1.149e-02  2.278e-03   5.044 4.58e-07 ***
+    ## StatusUC/LU   2.116e-03  6.018e-03   0.352   0.7251    
+    ## Month         3.749e-03  4.482e-05  83.630  < 2e-16 ***
+    ## Rent          2.747e-05  6.635e-07  41.400  < 2e-16 ***
+    ## MarketGrowth  4.086e-01  1.115e-02  36.631  < 2e-16 ***
+    ## ---
+    ## Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+    ## 
+    ## Residual standard error: 0.03386 on 61349 degrees of freedom
+    ## Multiple R-squared:  0.1281,	Adjusted R-squared:  0.1279 
+    ## F-statistic: 751.3 on 12 and 61349 DF,  p-value: < 2.2e-16
+    ## 
+
+Predictability here is low (R^2 = .13, we can also tell because our intercept is the highest coefficient) but our regression is telling us all the variables but Quantity seem to have enough statistical variance to contribute to seasonal strength. That is good to know. Interestingly, the second highest coefficient is Market Growth. I'm a bit curious so we can just take a look at why.
+
+```r
+plot(t_series$Market_Growth, type = "b", col =colores)
+abline(h = ".01", col = "black",lty = 2)
+legend(-2,.0375,c("Q1","Q2","Q3","Q4"),c("steel blue","forest green","red","orange"))
+```
+
+![](https://raw.githubusercontent.com/tykiww/imgbucket/master/img/ASS/four.png)
+
+Now wait a minute. This graph is strikingly similar in pattern to the seasonal ASS values. 
+
+![](https://raw.githubusercontent.com/tykiww/imgbucket/master/img/ASS/two.png)
+
+Every yellow (Q4) point is below average. Most the blue (Q1) points are also. Red (Q3) points are almost always above average whereas green (Q2) are never under. There seems to be a very close pattern Summer months above average whereas winter below or close. No wonder this coefficient is stronger than the others. Although it may not be "influential" Rent growth seems to inform seasonal trends which makes sense. Or maybe it is the other way around? Which came first? The chicken or the egg.
+
+<hr>
+
+Now to finish this off, we will use our statistically significant covariates and create our ARIMAX time-series regression. I won't be discussing the mechanics of this time series in this post, but hopefully soon. Unfortunately here, I will only be using Market Rent growth as a predictor for ease. Including everything else might run into memory problems or rank deficiency problems (Just saying that there may be too much collinerity when one-hot encoding).
+
+
+```r
+# Make each value into a time series
+
+# Adjust dataset
+ts <- select(rent_table,-HomeID,-Rehab1,
+             -Rehab2,-Rehab3,-Neighborhood, 
+             -Quantity, -Submarket, -City, 
+             -YearBuilt, -Level)
+# Numeric
+t_series <- cbind(aggregate(ts$ASS,by = list(ts$Month,ts$Year), mean),
+             aggregate(ts$MarketGrowth, by = list(ts$Month,ts$Year),mean)[,-c(1:2)])
+colnames(t_series) <- c("Month","Year","ASS","Market_Growth")
+
+head(t_series)
+```
+
+    ##   Month Year      ASS Market_Growth
+    ## 1     1 2010 1.000302        0.0055
+    ## 2     2 2010 1.001091        0.0055
+    ## 3     3 2010 1.002139        0.0055
+    ## 4     4 2010 1.001267        0.0132
+    ## 5     5 2010 1.000339        0.0132
+    ## 6     6 2010 1.002361        0.0132
+
+Now we can feed our data into the ARIMAX for prediction. Since we know that our Regression didn't do so well we can expect that our predictions will be conservative. However, the ARIMAX should pick up on the seasonality of Market Rent Growth on ASS and place the points in the correct bin above or below average. We will also remove, Month, Year, and rent because the model already assumes a period of 12 and ASS is a metric that seeks to inform rent values.
+
+```r
+library(forecast)
+# Using Autoregressive time series, model SAS using market growth as variable
+check <- auto.arima(t_series$ASS,xreg = as.matrix(select(t_series,-ASS,-Year,-Month,)))
+
+# Using Autoregressive time series, PREDICT Market Growth (no variables) for future prediction. This should be more precise!
+mkt_grth <- auto.arima(t_series$Market_Growth)
+arima_mg <- data.frame(Market_Growth = predict(mkt_grth,n.ahead = 12)$pred)
+
+
+# Predict using the random Market Growth Sample dataset
+pp <- predict(check,n.ahead = 12, newxreg = arima_mg)
+plot(c(t_series$ASS,pp$pred[1]),type = "b", xlim = c(60,135),
+     ylim = c(0.95,1.05) ,xlab = "Months",ylab = "SAS", main = "SAS Prediction Considering Market Growth")
+lines(pp$pred,col = "red",type = "b")
+lines(pp$pred + (pp$se*1.96), col = "blue",type = "l", lty = 2)
+lines(pp$pred - (pp$se*1.96), col = "blue",type = "l", lty = 2)
+abline(h = 1, col = "green", lty = 2)
+```
+
+![](https://raw.githubusercontent.com/tykiww/imgbucket/master/img/ASS/five.png)
+
+There we go. Our assumptions weren't that off. The regression is taking into account past patterns and annual momentum along with our factor of interest. Our predictions are definitely more conservative but the quarterly pattern seems to be similar. It just has a bit more information. Our fitted lines give us our 95% confidence estimates which seem surprisingly certain. Another thing to note here is that we PREDICTED with a regular ARIMA of what Market rent growth will be for the next year which will be a conservative estimate in the first place. If there is a better method to predict what the growth rate will be, we should stick to that so our ARIMAX can be as close as possible. Maybe for now, we should count on a regular ARIMA until there is a better method.
+
+Moving forward, we can take each of these monthly values and use those to inform our rent values. Are they below or above average? If so, by how much?
+
+
+
+
+
+
+
