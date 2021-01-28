@@ -1,0 +1,249 @@
+---
+title: "Prediction of Seasonally Adjusted Strengths by Year by Month"
+output: html_notebook
+---
+
+This statistical analysis is an attempt to create a regression analysis on monthly seasonal adjustments for North Carolina's rental values using relavant factors. The output of this regression will be a seasonally adjusted rate based off of an annual calendar that takes into account various factors such as submarket, yearbuilt, rehab, quantity, area, level, market growth, etc.
+
+
+First, we will load tools useful for a regression analysis.
+
+```{r, echo = FALSE}
+library(tidyverse)
+library(readxl)
+setwd("~/Desktop")
+```
+
+Next, we will load the dataset.
+
+```{r, echo = FALSE}
+filename <- "Housing.xlsx"
+out1 <- read_excel(filename,1)
+out2 <- read_excel(filename,2)
+```
+
+Now, we will begin by melting the out2 dataset. This means that each month-year column will be pressed into a row with its corresponding rent price as its own column. Simultaneously, seasonally adjusted strength (ASS, lol) will be calculated for each home at a given month
+
+```{r}
+
+# This might take a minute
+
+# Initialize with an empty list
+ob <- list()
+for (j in 1:nrow(out2)) {
+
+  # calculate rental values by year and extract the average by year
+  vl <- na.omit(t(out2[j,18:ncol(out2)]))
+  rwn <- rownames(vl)
+  a1 <- data.frame(do.call(rbind,strsplit(rwn,"-")),vl)
+  mean_by_year <- aggregate(a1$vl,by = list(a1$X2),mean)
+  
+  # Create new variable average and plug in average values per year
+  a1$av <- 0
+  for(k in 1:nrow(a1)) {
+    a1[k,4]<- mean_by_year[mean_by_year[,1] %in% a1$X2[k],2]
+  }
+  
+  # Divide each rent value by the average to obtain the seasonal strength.
+  a1$ass <- vl/a1$av
+  
+  # Create lists that have each rental property rent by month by year including its seasonal strength
+  newtab <- list()
+  for (i in 1:length(rwn)) {
+    newtab[[i]] <- cbind(out2[j,1:17],Month = a1$X1[i], Year = a1$X2[i], Rent = vl[i,], ASS = a1$ass[i])
+  }
+  ob[[j]] <- do.call(rbind,newtab)
+}
+
+
+```
+
+Next is some simple cleab up of dates and names
+
+```{r}
+
+# Simple Clean_up
+rent_table <- do.call(rbind,ob)
+rownames(rent_table) <- NULL
+
+# Change months numbers
+
+numMonth <- function(x) { # vectorized math is faster!
+  c(jan=1,feb=2,mar=3,apr=4,may=5,jun=6,jul=7,aug=8,sep=9,oct=10,nov=11,dec=12)[tolower(x)]
+}
+
+# Change years to long format
+numYears <- function(x) {
+  
+  now <- as.numeric(substr(strsplit(as.character(Sys.time()),"-")[[1]][1],3,4))
+  # Assuming that we do NOT go into the 1800s and the minimum year is 2009
+  ifelse(as.numeric(x)<=now,paste(20,x, sep = ""),
+         paste(19,x, sep = "")) %>% as.numeric
+}
+
+# Use functions (run once, do NOT re-run)
+rent_table$Month <- numMonth(rent_table$Month) 
+rent_table$Year <- numYears(rent_table$Year)
+
+# The table looks as follows
+head(rent_table, 10)
+
+```
+
+Now, I will pivot the monthly market growth onto the created table. 
+
+```{r}
+# Change out1 types to numeric
+out1[,-1] <- apply(out1[,-1],2,as.numeric)
+# Create exact columns
+short <- rent_table[,c("Month","Year")]
+short$Quarter <- 2
+short$Quarter[short[,1]<4] <- 1
+short$Quarter[short[,1]>9] <- 4
+short$Quarter[short[,1]<10&short[,1]>6] <- 3
+rent_table$MarketGrowth <- right_join(out1,short,by = c("Year","Quarter"))$RntGrw
+head(rent_table,10)
+```
+
+Just so you know how this looks like..
+
+```{r}
+# Each month's Average SAS value.
+check <- aggregate(rent_table$ASS,by = list(rent_table$Month), median)
+plot(check$Group.1, check$x,ylab = "Average_SAS", xlab = "Months")
+abline(h = 1,col = "red")
+```
+
+We can do several things from here
+
+
+(1) First, is a bootstrapping test of differences. Is there a robust statistical difference between summer and winter months in terms of seasonal strength?
+
+```{r}
+# Grab all summer months, bootstrap them
+# Summer Months constitute.. June - Sep (inclusive)
+summer <- rent_table[rent_table$Month %in% c(6:9),]$ASS
+# Grab all winter months, bootstrap them
+# Winter Months constitute.. Dec - Mar
+winter <- rent_table[rent_table$Month %in% c(12,1:3),]$ASS
+# subtract the average difference. Check if the p-value is below .05
+
+sum <- data.frame(SAS = sample(summer,10000,replace = TRUE))
+win <- data.frame(SAS = sample(winter,10000,replace = TRUE))
+
+
+sum$type <- 'Summer'
+win$type <- 'Winter'
+SAS_lengths <- rbind(sum, win)
+ggplot(SAS_lengths, aes(SAS, fill = type)) + geom_density(alpha = 0.2)
+
+# So, if we were to take all these homes only 70% of the time we would see an increase in home values.
+# In other words, the summer SAS and winter SAS are not statistically different from each other.
+mean(sum$SAS)
+mean(win$SAS)
+mean(sum$SAS-win$SAS)
+1-mean(sum$SAS>win$SAS) # So, there is a difference but maybe not a statistical difference.
+```
+
+So outright, we can kind of tell that there may not be so much of a "statistical" difference between summer and winter months in terms of seasonal adjustment. p-value is .3 which means.. If we were to pick any summer day and compare it to a winter day,70% of the time, our summer days will be larger in seasonal strengh than our winter days (If I were to pick a random one day in summer and random one day in winter, 70% of the time, summer will be higher than winter. If it was above 95% of the time, then we can say that statistically, we find a sure difference between the two). 
+
+If anyone argues with you that you can't use p-values as percents, tell them they are WRONG! You can use p-values as percents if you BOOTSTRAP the data. You are creating hypothetical simulations of what would actually happen in real-life.
+
+Furthermore, if I was to pick a random day of the summer and random day in the winter, the seasonal difference in strengh it 2.18%. This means that, on average, the summer months are 2.18% higher in seasonal RENTAL COSTS than the winter days not taking into account any other factors 70% of the time.
+
+(2) Do a Regression
+
+```{r}
+ # removed zip code because it would be collinear with city and hard to read.
+Xy_matrix <- rent_table[,c(2,5,6,9,13:15,17:22)]
+
+ass_lm <- lm(log(ASS) ~ Year + Month + MarketGrowth,data =  Xy_matrix)
+summary(ass_lm)
+```
+
+Predictability is low! It is picking up trends, but we are breaking the linearity assumption. Maybe a random Forest may do a bit better.
+
+```{r}
+## library(randomForest)
+## 
+## ass_rf <- randomForest(log(ASS) ~ Year + Month + MarketGrowth,data =  Xy_matrix)
+## ass_rf
+```
+
+It does, but just a bit better. Nothing too significant. How about just predicting housing rent costs?
+
+```{r}
+rent_lm <- lm(log(Rent) ~.-ASS, data = Xy_matrix)
+summary(rent_lm)
+```
+
+Amazingly, rent is predicted with tremendous accuracy (R^2 0.83). We can actually predict what the rent would be in a certain area using the variables. Unfortunately, Market Growth does not seem to be an important factor in this analysis to rent costs. Also, the data is predicting only within the years 2009-2019 so omitting the year may lead to unhealthy extrapolations. What might be good to add to this rent cost calculator is a annual beta prediction and use it to predict rental costs for the next years.
+
+So, using regression models, we realize that it is difficult to predict percentage SAS values. It isn't that difficult to calculate rent price by location but SAS seems to normalize out the fact that it is in a certain area. Also, because a regression is linear in nature, variates such as Market Growth and SAS tend to be best predicted using a seasonal model.
+
+(3) Predict SAS for each month using Market Growth
+
+After doing a regression, it seemed like the most important variables in predicting seasonally adjusted strength were: market growth, month, and year. This is probably because the data was breaking linearity assumptions due to seasonal trends.
+
+Assuming that I have already done a regression, I will now create an ARIMAX time series prediction. This time series predicts the percentage away from the average for this year (2020).
+
+
+```{r}
+# Adjust dataset
+time_series <- select(rent_table,MarketGrowth,Month,Year,ASS)
+
+sas_table <- aggregate(time_series$ASS,by = list(time_series$Month,time_series$Year), mean)
+mkt_table <- aggregate(time_series$MarketGrowth, by = list(time_series$Month,time_series$Year),mean)
+
+t_series <- cbind(sas_table,"Market_Growth" = mkt_table$x)
+colnames(t_series) <- c("Month","Year","ASS","Market_Growth")
+```
+
+Let's use an ARIMAX to predict Market Growth and SAS.
+
+First, I will identify if there is a pattern in market growth. If there is a certain pattern, it may or may not help depending on how SAS increases and decreases.
+
+```{r}
+colores <-  c(rep("steel blue",3),rep("forest green",3), rep("red",3), rep("orange",3))
+plot(t_series$Market_Growth, type = "b", col =colores)
+abline(h = ".01", col = "black",lty = 2)
+legend(-2,.0375,c("Q1","Q2","Q3","Q4"),c("steel blue","forest green","red","orange"))
+```
+
+Similarly, I will take a look at SAS. It looks almost like the market growth is the *mathematical first derivative* of what SAS will act like. This means that the values could potentially help.
+
+```{r}
+plot(t_series$ASS, type = "b", col =colores)
+abline(h = ".01", col = "black",lty = 2)
+legend(0,.9825,c("Q1","Q2","Q3","Q4"),c("steel blue","forest green","red","orange"))
+```
+
+Use ARIMA.
+
+```{r}
+# Using Autoregressive time series, model SAS using market growth as variable
+check <- auto.arima(t_series$ASS,xreg = as.matrix(select(t_series,Market_Growth)))
+
+# Using Autoregressive time series, PREDICT Market Growth (no variables) for future prediction.
+mkt_grth <- auto.arima(t_series$Market_Growth)
+ran <- FALSE
+mkp <- ifelse(ran,sample(t_series$Market_Growth,12),predict(mkt_grth,n.ahead = 12)$pred)
+
+arima_mg <- data.frame(Market_Growth = predict(mkt_grth,n.ahead = 12)$pred)
+
+# Predict using the random Market Growth Sample dataset
+pp <- predict(check,n.ahead = 12, newxreg = mkp)
+plot(c(t_series$ASS,pp$pred[1]),type = "b", xlim = c(60,135),
+     ylim = c(0.95,1.05) ,xlab = "Months",ylab = "SAS", main = "SAS Prediction Considering Market Growth")
+lines(pp$pred,col = "red",type = "b")
+lines(pp$pred + (pp$se*1.96), col = "blue",type = "l", lty = 2)
+lines(pp$pred - (pp$se*1.96), col = "blue",type = "l", lty = 2)
+abline(h = 1, col = "green", lty = 2)
+```
+
+Because the fitted lines in blue are very closely represented near the predicted SAS values, we can show that it helped with the prediction of SAS. The plot above is predicting (red dots) SAS values from Jan - Dec 2020. For each month, we will have of seasonal strength value for the year 2020. This ALSO means that the new predicted SAS values take market rent growth into consideration! The more accurate our rent growth rates, the more accurate our SAS will become.
+
+If we want to add further on this model, we can add other factors to strengthen predictability.
+
+You'll also notice something amazing about SAS. You CANNOT compare seasonally adjusted strength values from year to year. They are summary values that are amalgamated from every 12-month cycle.
+
