@@ -11,3 +11,8 @@ Although I think this may be an extremely helpful analysis especially when the v
 **Thought 2)** Clustering is a completely feasible and novel method. However, it doesn't necessarily need to be used to find complement goods. It also does not weed out potential cannibalization. Hence, I believe that a a simple row-by-row correlation or regression coefficient would suffice. This will identify items that could be cross-sold and also substitute each other's purchases. Also, along the lines of a correlation or regression: Flagging debut timings is crucial. If a product/service wasn't sold at the same time as another, you CANNOT compare it based on the time series. The non-overlapping timings must be omitted (NA) for analysis. This brings a challenge of statistical power. A row-by-row regression is most likely favored for this type of analysis if there is not enough time-based overlap.
 
 **Thought 3)** Another challenge that we might face is computational efficiency. This is where the k-means triumphs over row by row regressions. In this case, clustering probably should be used, but anticlustering could probably weed out any substitutes. This might still be a challenge, as anticlustering only reverses the objective function. However, this is where my brain stops!
+
+
+# Links for help on substitute/complement goods findings
+- https://cs.stanford.edu/people/jure/pubs/prodgraph-kdd15.pdf
+- https://towardsdatascience.com/retail-analytics-a-novel-and-intuitive-way-of-finding-substitutes-and-complements-c99790800b42
